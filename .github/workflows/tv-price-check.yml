@@ -1,0 +1,46 @@
+name: TV Price Check
+
+on:
+  schedule:
+    # GitHub Actions cron always runs in UTC, and Ireland shifts between
+    # GMT (UTC+0) and IST (UTC+1) with daylight saving. Rather than picking
+    # one UTC time and drifting an hour off twice a year, this runs at both
+    # possible UTC times for 9am and 3pm Dublin time. scrape_and_alert.py
+    # checks the real Dublin clock and skips the run if it isn't actually
+    # 9am or 3pm locally — so exactly one of each pair does real work.
+    - cron: '0 8 * * *'   # 9am Dublin during IST (summer)
+    - cron: '0 9 * * *'   # 9am Dublin during GMT (winter)
+    - cron: '0 14 * * *'  # 3pm Dublin during IST (summer)
+    - cron: '0 15 * * *'  # 3pm Dublin during GMT (winter)
+  workflow_dispatch: {}   # lets you trigger a manual test run from the Actions tab
+
+permissions:
+  contents: write  # needed so the workflow can commit the updated state.json
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: Run price check
+        env:
+          EMAIL_ADDRESS: ${{ secrets.EMAIL_ADDRESS }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          ALERT_TO_EMAIL: ${{ secrets.ALERT_TO_EMAIL }}
+        run: python scrape_and_alert.py
+
+      - name: Commit updated state
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Update TV price state"
+          file_pattern: state.json
